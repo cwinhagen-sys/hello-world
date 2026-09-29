@@ -5821,7 +5821,7 @@ function hotCount(group){ let n=0,t=0; for(const h of HOT){ if(h.group!==group) 
    ========================================================= */
 const FREE_STOPS = 50;                                           // stops 1-50 = index 0-49; index 49 is the first region's final test
 const GATE_N = FREE_STOPS-0.5;                                   // the gate stands between stop 50 and stop 51
-const LIC = {"url": "", "demo": [], "support": "c.winhagen@gmail.com", "pro": true};                                      // {url, demo:[codes that work without a server], support, pro}
+const LIC = {"url": "https://script.google.com/macros/s/AKfycbxL-u9fECvGfiT6CmAHoR9409i9D7_0SuIVV8K_VDVGqbqt3siuTIDeQZcsRqmX6p0LsQ/exec", "demo": [], "support": "c.winhagen@gmail.com", "pro": true};                                      // {url, demo:[codes that work without a server], support, pro}
 const passNorm = c => String(c||'').toUpperCase().replace(/[^A-Z0-9]/g,'').replace(/O/g,'0').replace(/[IL]/g,'1');
 const passPretty = n => n.length===8 ? n.slice(0,4)+'-'+n.slice(4) : n;
 const PASS = (()=>{
@@ -5833,18 +5833,19 @@ const PASS = (()=>{
   const save=()=>{ try{ if(st) localStorage.setItem(K,JSON.stringify(st)); else localStorage.removeItem(K); }catch(e){} };
   /* the same request as a <script> (the server answers callback=name with name({...})): works where fetch is refused */
   function jsonp(url){ return new Promise(res=>{ const cb='hwcb'+Math.random().toString(36).slice(2), s=document.createElement('script');
-    const done=v=>{ clearTimeout(t); try{ delete window[cb]; }catch(e){ window[cb]=undefined; } s.remove(); res(v); }, t=setTimeout(()=>done({ok:false,err:'network'}),12000);
-    window[cb]=d=>done(d&&typeof d==='object'?d:{ok:false,err:'server'}); s.onerror=()=>done({ok:false,err:'network'}); s.src=url+'&callback='+cb; document.head.appendChild(s); }); }
+    let got=false; const done=v=>{ if(got) return; got=true; clearTimeout(t); try{ delete window[cb]; }catch(e){ window[cb]=undefined; } s.remove(); res(v); }, t=setTimeout(()=>done({ok:false,err:'network'}),15000);
+    window[cb]=d=>done(d&&typeof d==='object'?d:{ok:false,err:'server'}); s.onerror=()=>done({ok:false,err:'network'}); s.onload=()=>setTimeout(()=>done({ok:false,err:'network'}),50);   /* loaded but never called back: an error page */
+    s.src=url+'&callback='+cb; document.head.appendChild(s); }); }
   async function call(a,params){ if(!LIC.url) return {ok:false,err:'config'};
-    const ctl=new AbortController(), tm=setTimeout(()=>ctl.abort(),12000);
+    const ctl=new AbortController(), tm=setTimeout(()=>ctl.abort(),15000);
     const q=new URLSearchParams(Object.assign({a,d:dev},params)), url=LIC.url+(LIC.url.includes('?')?'&':'?')+q;
     try{ const r=await fetch(url,{cache:'no-store',signal:ctl.signal});
-      if(!r.ok) return {ok:false,err:'network'}; return await r.json(); }catch(e){ if(e&&e.name==='AbortError') return {ok:false,err:'network'}; return await jsonp(url); }finally{ clearTimeout(tm); } }
+      if(!r.ok) return await jsonp(url); return await r.json(); }catch(e){ if(e&&e.name==='AbortError') return {ok:false,err:'network'}; return await jsonp(url); }finally{ clearTimeout(tm); } }
   return {
     dev, info:()=>st, ok:()=>!!st && Date.now()-st.t<GRACE, key:()=>(st&&st.k)||'',
     async redeem(code){ const n=passNorm(code); if(n.length!==8) return {ok:false,err:'invalid'};
       if(LIC.demo.map(passNorm).includes(n)){ st={c:passPretty(n),s:1,o:35,k:'',t:Date.now(),demo:1}; save(); return {ok:true}; }
-      const r=await call('redeem',{c:n}); if(r&&r.ok){ st={c:passPretty(n),s:r.seat,o:r.of,k:r.key||'',t:Date.now()}; save(); } return r||{ok:false,err:'server'}; },
+      const r=await call('redeem',{code:n});   /* not c=: Google's web app front end answers 400 to c=<code> */ if(r&&r.ok){ st={c:passPretty(n),s:r.seat,o:r.of,k:r.key||'',t:Date.now()}; save(); } return r||{ok:false,err:'server'}; },
     async check(){ if(!st) return {ok:false,err:'nopass'}; if(st.demo) return {ok:true}; const r=await call('check',{});
       if(r&&r.ok){ st.s=r.seat; st.o=r.of; if(r.key) st.k=r.key; st.t=Date.now(); save(); }
       else if(r&&['revoked','expired','nopass'].includes(r.err)){ st=null; save(); }
