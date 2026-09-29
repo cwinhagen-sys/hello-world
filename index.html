@@ -5905,7 +5905,8 @@ function openGate(why,prefill){
   d.querySelector('form').onsubmit=async e=>{ e.preventDefault(); if(go.disabled) return; const code=inp.value;
     if(passNorm(code).length!==8){ msg.textContent=GATE_TEXT.invalid; msg.className='gt-msg bad'; inp.focus(); return; }
     go.disabled=true; inp.disabled=true; msg.className='gt-msg'; msg.textContent='Kontrollerar koden …';
-    const r=await PASS.redeem(code);
+    const slow=setTimeout(()=>{ if(go.disabled) msg.textContent='Det tar längre tid än vanligt. Vänta lite, det brukar gå.'; },6000);
+    const r=await PASS.redeem(code); clearTimeout(slow);
     if(r.ok){ msg.className='gt-msg good'; msg.textContent='Klart! Grinden öppnas …'; try{ sfx('star'); }catch(err){} setTimeout(()=>{ close(); unlockWorld(why); },900); return; }
     go.disabled=false; inp.disabled=false; msg.className='gt-msg bad'; msg.textContent=(GATE_TEXT[r.err]||GATE_TEXT.server)+(r.err==='full'&&r.of?` (${r.of} av ${r.of} platser)`:''); inp.focus(); inp.select(); };
   setTimeout(()=>inp.focus({preventScroll:true}),80);
