@@ -5836,11 +5836,14 @@ const PASS = (()=>{
     let got=false; const done=v=>{ if(got) return; got=true; clearTimeout(t); try{ delete window[cb]; }catch(e){ window[cb]=undefined; } s.remove(); res(v); }, t=setTimeout(()=>done({ok:false,err:'network'}),15000);
     window[cb]=d=>done(d&&typeof d==='object'?d:{ok:false,err:'server'}); s.onerror=()=>done({ok:false,err:'network'}); s.onload=()=>setTimeout(()=>done({ok:false,err:'network'}),50);   /* loaded but never called back: an error page */
     s.src=url+'&callback='+cb; document.head.appendChild(s); }); }
+  /* Google's web app front end is slow and sometimes answers with an error page: try fetch, then the script tag, then fetch again. Redeeming is safe to repeat (the same device keeps its seat). */
   async function call(a,params){ if(!LIC.url) return {ok:false,err:'config'};
-    const ctl=new AbortController(), tm=setTimeout(()=>ctl.abort(),15000);
     const q=new URLSearchParams(Object.assign({a,d:dev},params)), url=LIC.url+(LIC.url.includes('?')?'&':'?')+q;
-    try{ const r=await fetch(url,{cache:'no-store',signal:ctl.signal});
-      if(!r.ok) return await jsonp(url); return await r.json(); }catch(e){ if(e&&e.name==='AbortError') return {ok:false,err:'network'}; return await jsonp(url); }finally{ clearTimeout(tm); } }
+    const viaFetch=async()=>{ const ctl=new AbortController(), tm=setTimeout(()=>ctl.abort(),15000);
+      try{ const r=await fetch(url,{cache:'no-store',signal:ctl.signal}); if(!r.ok) return null; return await r.json(); }catch(e){ return null; }finally{ clearTimeout(tm); } };
+    const viaScript=async()=>{ const d=await jsonp(url); return d&&d.ok===false&&d.err==='network'?null:d; };
+    for(const f of [viaFetch,viaScript,viaFetch]){ const r=await f(); if(r&&typeof r==='object') return r; }
+    return {ok:false,err:'network'}; }
   return {
     dev, info:()=>st, ok:()=>!!st && Date.now()-st.t<GRACE, key:()=>(st&&st.k)||'',
     async redeem(code){ const n=passNorm(code); if(n.length!==8) return {ok:false,err:'invalid'};
