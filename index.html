@@ -1161,9 +1161,52 @@ a.ld-btn{text-decoration:none} .ld-cta{margin:18px 0 0!important}
     var o = console[k];
     console[k] = function(){ try { var s = [].slice.call(arguments).join(' '); if (k === 'error' ? /THREE|WebGL|GL_|shader|program|context/i.test(s) : /shader|program|WebGL|GL_|context lost|INVALID/i.test(s)) window.__dg(k.toUpperCase() + ': ' + s); } catch (e) {} return o.apply(console, arguments); };
   });
+  /* ---- the graphics card was reset: explain, pause the 3D loop and restart the page in light mode when the map is idle ---- */
+  var RL = { need: false, idle: 0, ov: null, restored: false };
+  function mapIdle(){
+    try {
+      if (document.hidden) return false;
+      if (window.__hwIdle) return !!window.__hwIdle();
+      var b = document.body; return !b.classList.contains('playing') && !b.classList.contains('teaching') && !b.classList.contains('landing-on') && !document.querySelector('.ask');
+    } catch (e) { return false; }
+  }
+  function veil(on){
+    try {
+      if (on && !RL.ov) {
+        var o = document.createElement('div'); o.id = 'gfxVeil'; o.setAttribute('role', 'status');
+        o.style.cssText = 'position:fixed;inset:0;z-index:99998;display:grid;place-items:center;background:#F4E9D4;color:#173B36;font:700 20px/1.4 system-ui,sans-serif;text-align:center;padding:24px';
+        o.innerHTML = '<div>Grafiken startar om …<br><small style="font-weight:600;font-size:15px;opacity:.75">Ett ögonblick. Din resa är sparad.</small></div>';
+        document.body.appendChild(o); RL.ov = o;
+      } else if (!on && RL.ov) { RL.ov.remove(); RL.ov = null; }
+    } catch (e) {}
+  }
+  /* at most two automatic restarts per ten minutes (counted in sessionStorage); without a working counter there is no automatic restart at all */
+  function mayRestart(){
+    try {
+      var a = JSON.parse(sessionStorage.getItem('hw-rl') || '[]').filter(function(t){ return Date.now() - t < 600000; });
+      if (a.length >= 2) return false;
+      a.push(Date.now()); sessionStorage.setItem('hw-rl', JSON.stringify(a)); sessionStorage.setItem('hw-resume', '1');
+      return JSON.parse(sessionStorage.getItem('hw-rl')).length === a.length;
+    } catch (e) { return false; }
+  }
+  setInterval(function(){
+    if (!RL.need) return;
+    if (!mapIdle()) { RL.idle = 0; veil(false); return; }
+    veil(true);
+    if (++RL.idle < 3) return;                                              /* idle for 1.5 s in a row: pending saves are done */
+    if (!RL.restored && performance.now() - D.lostAt < 6000) return;       /* give the browser a moment to hand the context back */
+    RL.need = false;
+    if (!mayRestart()) { veil(false); window.__gfxReset = false; window.__dg('WebGL: sidan har redan startats om två gånger. Ladda om den själv om kartan är vit.'); return; }
+    try { location.reload(); } catch (e) { veil(false); window.__gfxReset = false; }
+  }, 500);
   window.__diagInit = function(renderer, canvas){
-    canvas.addEventListener('webglcontextlost', function(){ D.lostAt = performance.now(); try { localStorage.setItem('hw-lite', '1'); } catch (e) {} window.__dg('WebGL: grafikkontexten förlorades (grafikkortet startade om). Ladda om sidan, den startar då i lätt grafikläge.'); });
-    canvas.addEventListener('webglcontextrestored', function(){ window.__dg('WebGL: kontexten återställdes'); });
+    canvas.addEventListener('webglcontextlost', function(){
+      D.lostAt = performance.now(); try { localStorage.setItem('hw-lite', '1'); } catch (e) {}
+      var inf = ''; try { if (window.__hwInfo) inf = ' ' + JSON.stringify(window.__hwInfo()); } catch (e) {}
+      window.__dg('WebGL: grafikkontexten förlorades (grafikkortet startade om). Sidan startar om i lätt grafikläge.' + inf);
+      window.__gfxReset = true; RL.need = true; RL.idle = 0; RL.restored = false;
+    });
+    canvas.addEventListener('webglcontextrestored', function(){ RL.restored = true; window.__dg('WebGL: kontexten återställdes'); });
     var gl = renderer.getContext(), fadeOn = 0;
     setInterval(function(){
       try {
@@ -3011,7 +3054,7 @@ function openIntro(u,onStart){
   PL.guideNav=d=>{ if(d>0&&pg<pages.length-1){ pg++; show(); } else if(d<0&&pg>0){ pg--; show(); } };
   show();
 }
-function closePlay(){ PL.open=false; if(typeof stopSpeech==='function') stopSpeech(); if(PL.preview){ PL.preview=false; setTimeout(()=>{ if(!PL.open) play.classList.remove('over'); },290); } if(TTS.ok) speechSynthesis.cancel(); play.classList.remove('in'); document.body.classList.remove('playing'); setTimeout(()=>{ if(!PL.open){ play.hidden=true; stage.innerHTML=''; fb.hidden=true; } },280); }
+function closePlay(){ window.__hwAct=Date.now(); PL.open=false; if(typeof stopSpeech==='function') stopSpeech(); if(PL.preview){ PL.preview=false; setTimeout(()=>{ if(!PL.open) play.classList.remove('over'); },290); } if(TTS.ok) speechSynthesis.cancel(); play.classList.remove('in'); document.body.classList.remove('playing'); setTimeout(()=>{ if(!PL.open){ play.hidden=true; stage.innerHTML=''; fb.hidden=true; } },280); }
 function updTop(){ $('#playXp').textContent=PL.xp+' XP'; const s=$('#playStreak'); s.textContent=PL.streak; s.parentElement.classList.toggle('hot',PL.streak>=3); $('#playMute').textContent=PRG.mute?'🔇':'🔊'; }
 
 function coachify(){ stage.querySelectorAll('.q .pip-say:not(.coach)').forEach(ps=>{ const q=ps.closest('.q'); let col=q.parentElement; if(!col.classList.contains('q-col')){ col=document.createElement('div'); col.className='q-col'+(q.classList.contains('wide')?' wide':''); q.parentNode.insertBefore(col,q); col.appendChild(q); } ps.classList.add('coach'); col.insertBefore(ps,q); }); }
@@ -3207,7 +3250,7 @@ function countUp(el,to){ const t0=performance.now(), d=REDUCED?1:900; const st=t
 function confetti(){ if(REDUCED) return; const cols=['#FF7B3A','#F3B530','#1FA89B','#A96BFF','#4DB3E0','#FF8FB1']; const w=document.createElement('div'); w.className='confetti';
   for(let k=0;k<44;k++){ const s=document.createElement('i'); s.style.cssText=`left:${50+(Math.random()-0.5)*30}%;background:${cols[k%cols.length]};--x:${(Math.random()-0.5)*640}px;--y:${-180-Math.random()*300}px;--r:${Math.random()*720}deg;animation-delay:${Math.random()*0.15}s`; w.appendChild(s); }
   play.appendChild(w); setTimeout(()=>w.remove(),1800); }
-function afterPlay(n,pass,stay){ if(pass && n===completed && completed<TOTAL){ if(stay) completeNext(); else setTimeout(()=>{ if(completed===n) completeNext(); },350); } else refreshNodes(); }
+function afterPlay(n,pass,stay){ window.__hwAct=Date.now(); if(pass && n===completed && completed<TOTAL){ if(stay) completeNext(); else setTimeout(()=>{ if(completed===n) completeNext(); },350); } else refreshNodes(); }
 function updXPHud(){ const x=$('#xpVal'); if(x) x.textContent=PRG.xp; const s=$('#starVal'); if(s) s.textContent=starCount(); const c=$('#coinVal'); if(c) c.textContent=PRG.coins||0; if(typeof updAssignBtn==='function') updAssignBtn(); }
 function startNode(i,lv){ const u=unitOf(i); if(PLAYABLE(i) && !(PRG.seen&&PRG.seen[u])) openIntro(u,()=>openPlay(i,lv)); else openPlay(i,lv); }
 function askConfirm(title,text,okT,cancelT){ return new Promise(res=>{ const old=document.querySelector('.ask'); if(old) old.remove();
@@ -4755,6 +4798,7 @@ function openRunner(it,mode,unitIdx,onDone){
   addEventListener('keydown',key); cv.addEventListener('touchstart',ts,{passive:true}); cv.addEventListener('touchend',te,{passive:true});
   const vis=()=>{ if(document.hidden&&run&&!paused) togglePause(); }; document.addEventListener('visibilitychange',vis);
   function togglePause(){ if(!run||over) return; paused=!paused; $r('.rn-pause').hidden=!paused; if(!paused) last=performance.now(); else setTimeout(()=>$r('.rn-go').focus(),50); }
+  cv.addEventListener('webglcontextlost',ev=>{ ev.preventDefault(); try{ window.__dg('WebGL: grafiken i Ordlöparen startade om, rundan avbröts.'); }catch(e){} if(!over){ paused=false; $r('.rn-pause').hidden=true; end(false,true); } });
   $r('.rn-pausebtn').onclick=()=>togglePause(); $r('.rn-go').onclick=()=>togglePause(); $r('.rn-quit').onclick=()=>{ paused=false; $r('.rn-pause').hidden=true; end(false,true); };
   const size=()=>{ ren.setSize(innerWidth,innerHeight,false); cam.aspect=innerWidth/innerHeight; cam.updateProjectionMatrix(); }; addEventListener('resize',size); size();
   /* gates */
@@ -5162,6 +5206,8 @@ function buildLanding(){ if(document.getElementById('landing')) return;
   const leave=(what)=>{
     L.classList.add('out'); setTimeout(()=>{ L.hidden=true; L.classList.remove('out','launch'); },450); LAND_ON=false; document.body.classList.remove('landing-on'); if(what==='teacher'&&typeof openTeacher==='function') openTeacher(); };
   L.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>go(b.dataset.go));
+  /* after an automatic restart (graphics-card reset) the pupil goes straight back to the map */
+  try{ if(sessionStorage.getItem('hw-resume')==='1'){ sessionStorage.removeItem('hw-resume'); leave('resume'); } }catch(e){}
   /* the gate sends teachers here: the start page explains class codes, the children only see the code field */
   window.hwSchoolInfo=()=>{ L.hidden=false; LAND_ON=true; document.body.classList.add('landing-on'); L.classList.remove('out','launch'); setTimeout(()=>{ const s=L.querySelector('#ld-school'); if(s) s.scrollIntoView({block:'start'}); },60); };
   L.querySelectorAll('.ld-top nav a').forEach(a=>a.onclick=e=>{ e.preventDefault(); L.querySelector(a.getAttribute('href')).scrollIntoView({behavior:'smooth',block:'start'}); });
@@ -5559,7 +5605,9 @@ function openFinale(){ if(document.getElementById('finale')) return; const stars
   setTimeout(()=>{ const e=el.querySelector('#finX'); if(e) e.focus({preventScroll:true}); },350); }
 let cnWait=0;
 function completeNext(){
+  window.__hwAct=Date.now();
   if(completed>=TOTAL) return;
+  if(hop && window.__gfxReset) hop=null;   /* the picture of the last hop is frozen while a graphics reset is handled: the step itself is saved at once */
   if(hop){ /* the previous hop is still running (the map is frozen while an exercise is open): wait for it instead of dropping this step */
     if(++cnWait<80){ const c0=completed; setTimeout(()=>{ if(completed===c0) completeNext(); },150); return; }
     hop=null; }
@@ -6458,7 +6506,11 @@ async function boot(){ try{ buildLanding(); }catch(e){ console.warn('landing',e)
 }
 let last=0, T=0, fc=0, STREAMMS=0;
 function frame(now){ window.__diag.hb=now; try{ frame0(now); }catch(e){ window.__dg('frame(): '+(e&&e.stack||e)); requestAnimationFrame(frame); } }
-function frame0(now){ if(LAND_ON&&!document.getElementById('landing').hidden&&window.__landPause!==false){ requestAnimationFrame(frame); return; }
+/* the 3D map stands still while a graphics-card reset is being handled (diag.js restarts the page when the map is idle) */
+window.__hwInfo=()=>({gpu:GPU,q:QUALITY,lite:LITE,dpr:window.devicePixelRatio,pr:+renderer.getPixelRatio().toFixed(2),w:canvas.width,h:canvas.height,drs:DRS.step,sh:SHMODE,progs:(renderer.info.programs||[]).length,tex:renderer.info.memory.textures,geo:renderer.info.memory.geometries});
+window.__hwIdle=()=>!PL.open && !LAND_ON && !$('.ask') && !document.body.classList.contains('teaching') && !!$('#loader').classList.contains('done') && Date.now()-(window.__hwAct||0)>2500;
+function frame0(now){ if(window.__gfxReset){ last=now; requestAnimationFrame(frame); return; }
+  if(LAND_ON&&!document.getElementById('landing').hidden&&window.__landPause!==false){ requestAnimationFrame(frame); return; }
   if((PL.open && (play.classList.contains('in')||$('#shop').classList.contains('in'))) || document.body.classList.contains('teaching')){ last=now; requestAnimationFrame(frame); return; }
   const dt=Math.min(0.05,(now-last)/1000||0.016); last=now; T+=dt; U.uTime.value=T;
   updateCamera(dt); U.uCamPos.value.copy(camera.position); updateSun(); updateAtmosphere(); updateProgress(dt,T);
